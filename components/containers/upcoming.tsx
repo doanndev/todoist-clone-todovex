@@ -1,46 +1,58 @@
 "use client";
 import { api } from "@/convex/_generated/api";
+import { agendaFor } from "@/lib/agenda";
+import { dayLabel, isNearDay } from "@/lib/schedule";
 import { useQuery } from "convex/react";
-import { Dot } from "lucide-react";
 import moment from "moment";
+import { useMemo } from "react";
 import { AddTaskWrapper } from "../add-tasks/add-task-button";
+import PageHeader from "../nav/page-header";
+import EmptyState from "../todos/empty-state";
+import TaskSkeleton from "../todos/task-skeleton";
+import OverdueSection from "../todos/overdue-section";
 import Todos from "../todos/todos";
 
 export default function Upcoming() {
-  const groupTodosByDate = useQuery(api.todos.groupTodosByDate) ?? [];
-  const overdueTodos = useQuery(api.todos.overdueTodos) ?? [];
+  const todos = useQuery(api.todos.get);
+  const loading = todos === undefined;
+  const { overdue, upcoming } = useMemo(() => agendaFor(todos ?? []), [todos]);
 
-  if (groupTodosByDate === undefined || overdueTodos === undefined) {
-    <p>Loading...</p>;
-  }
   return (
-    <div className="xl:px-40">
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold md:text-2xl">Upcoming</h1>
-      </div>
-      <div className="flex flex-col gap-1 py-4">
-        <p className="font-bold flex text-sm">Overdue</p>
-        <Todos items={overdueTodos} />
-      </div>
-      <div className="pb-6">
-        <AddTaskWrapper />
-      </div>
-      <div className="flex flex-col gap-1 py-4">
-        {Object.keys(groupTodosByDate || {}).map((dueDate) => {
-          return (
-            <div key={dueDate} className="mb-6">
-              <p className="font-bold flex text-sm items-center">
-                {moment(dueDate).format("LL")} <Dot />
-                {moment(dueDate).format("dddd")}
-              </p>
-              <ul>
-                <Todos items={groupTodosByDate[dueDate]} />
-                <AddTaskWrapper />
-              </ul>
-            </div>
-          );
-        })}
-      </div>
-    </div>
+    <>
+      <PageHeader
+        title="Upcoming"
+        meta={loading ? undefined : "The next 60 days, soonest first"}
+      />
+      {loading ? (
+        <TaskSkeleton />
+      ) : (
+        <>
+          <OverdueSection items={overdue} />
+          {upcoming.length === 0 ? (
+            <EmptyState title="Nothing scheduled.">
+              Tasks from tomorrow on, including repeats, are grouped by day
+              here.
+            </EmptyState>
+          ) : (
+            upcoming.map(([day, items]) => (
+              <section key={day} className="mb-8">
+                <h2 className="mb-1 text-sm font-semibold text-muted-foreground">
+                  {dayLabel(day)}
+                  {/* Only "Today"-style labels need the date spelled out. */}
+                  {isNearDay(day) && (
+                    <span className="font-normal">
+                      {" "}
+                      {moment(day).format("D MMMM")}
+                    </span>
+                  )}
+                </h2>
+                <Todos items={items} />
+              </section>
+            ))
+          )}
+        </>
+      )}
+      <AddTaskWrapper />
+    </>
   );
 }

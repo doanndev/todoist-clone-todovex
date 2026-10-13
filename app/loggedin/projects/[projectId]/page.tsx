@@ -1,70 +1,64 @@
 "use client";
 import { AddTaskWrapper } from "@/components/add-tasks/add-task-button";
-import SuggestMissingTasks from "@/components/add-tasks/suggest-tasks";
-import MobileNav from "@/components/nav/mobile-nav";
-import SideBar from "@/components/nav/side-bar";
+import PageHeader from "@/components/nav/page-header";
+import ChangeProjectColor from "@/components/projects/change-project-color";
 import DeleteProject from "@/components/projects/delete-project";
 import CompletedTodos from "@/components/todos/completed-todos";
+import EmptyState from "@/components/todos/empty-state";
+import TaskSkeleton from "@/components/todos/task-skeleton";
 import Todos from "@/components/todos/todos";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
+import { useSwatches } from "@/lib/use-swatches";
+import { projectName, SWATCH_CLASS, swatchStyle } from "@/lib/swatch";
 import { useQuery } from "convex/react";
 import { useParams } from "next/navigation";
+import { useMemo } from "react";
+import { partitionItems } from "@/lib/agenda";
 
 export default function ProjectIdPage() {
   const { projectId } = useParams<{ projectId: Id<"projects"> }>();
 
-  const inCompletedTodosByProject =
-    useQuery(api.todos.getInCompleteTodosByProjectId, {
-      projectId,
-    }) ?? [];
-  const completedTodosByProject =
-    useQuery(api.todos.getCompletedTodosByProjectId, {
-      projectId,
-    }) ?? [];
+  const todos = useQuery(api.todos.getTodosByProjectId, { projectId });
+  const lists = useMemo(() => partitionItems(todos ?? []), [todos]);
+  const open = todos === undefined ? undefined : lists.open;
+  const done = todos === undefined ? undefined : lists.done;
+  const project = useQuery(api.projects.getProjectByProjectId, { projectId });
 
-  const project = useQuery(api.projects.getProjectByProjectId, {
-    projectId,
-  });
-  const projectTodosTotal =
-    useQuery(api.todos.getTodosTotalByProjectId, {
-      projectId,
-    }) || 0;
-
-  const projectName = project?.name || "";
+  const loading = open === undefined || done === undefined;
+  const swatch = useSwatches()(projectId);
 
   return (
-    <div className="grid min-h-screen w-full md:grid-cols-[220px_1fr] lg:grid-cols-[280px_1fr]">
-      <SideBar />
-      <div className="flex flex-col">
-        <MobileNav navTitle={"My Projects"} navLink="/loggedin/projects" />
-
-        <main className="flex flex-1 flex-col gap-4 p-4 lg:px-8">
-          <div className="xl:px-40">
-            <div className="flex items-center justify-between flex-wrap gap-2 lg:gap-0">
-              <h1 className="text-lg font-semibold md:text-2xl">
-                {projectName || "Project"}
-              </h1>
-              <div className="flex gap-6 lg:gap-12 items-center">
-                <SuggestMissingTasks projectId={projectId} />
-                <DeleteProject projectId={projectId} />
-              </div>
-            </div>
-            <div className="flex flex-col gap-1 mt-4">
-              <Todos items={inCompletedTodosByProject} />
-
-              <div className="pb-6">
-                <AddTaskWrapper projectId={projectId} />
-              </div>
-
-              <Todos items={completedTodosByProject} />
-              <div className="flex items-center space-x-4 gap-2 border-b-2 p-2 border-gray-100 text-sm text-foreground/80">
-                <CompletedTodos totalTodos={projectTodosTotal} />
-              </div>
-            </div>
+    <>
+      <div
+        className={`${SWATCH_CLASS} mb-4 h-3 rounded-[2px] shadow-[inset_0_0_0_1px_rgba(0,0,0,0.06)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]`}
+        style={swatchStyle(swatch)}
+        role="img"
+        aria-label={`${swatch.name} swatch`}
+      />
+      <PageHeader
+        title={projectName(project) || "Project"}
+        meta={loading ? undefined : `${open.length} open, ${done.length} done`}
+        actions={
+          <div className="flex items-center">
+            <ChangeProjectColor projectId={projectId} project={project} />
+            <DeleteProject projectId={projectId} />
           </div>
-        </main>
-      </div>
-    </div>
+        }
+      />
+      {loading ? (
+        <TaskSkeleton />
+      ) : open.length === 0 ? (
+        <EmptyState title="No open tasks in this project.">
+          Add one below, or pick another project from the sidebar.
+        </EmptyState>
+      ) : (
+        <Todos items={open} />
+      )}
+      <AddTaskWrapper projectId={projectId} />
+      <CompletedTodos totalTodos={done?.length ?? 0}>
+        <Todos items={done ?? []} />
+      </CompletedTodos>
+    </>
   );
 }

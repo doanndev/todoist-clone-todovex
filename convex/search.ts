@@ -1,53 +1,27 @@
 import { v } from "convex/values";
-import { action, internalQuery } from "./_generated/server";
-import { getEmbeddingsWithAI } from "./openai";
+import { query } from "./_generated/server";
 import { handleUserId } from "./auth";
-import { internal } from "./_generated/api";
+import { LIST_LIMIT } from "./limits";
 
-export const fetchSearchResults = internalQuery({
-  args: {
-    results: v.array(v.object({ _id: v.id("todos"), _score: v.float64() })),
-  },
-  handler: async (ctx, args) => {
-    const results = [];
-    for (const result of args.results) {
-      const doc = await ctx.db.get(result._id);
-      if (doc === null) {
-        continue;
-      }
-      results.push({ ...doc });
-    }
-    return results;
-  },
-});
-
-export const searchTasks = action({
+// Plain case-insensitive substring match over task name and description.
+export const searchTasks = query({
   args: {
     query: v.string(),
   },
   handler: async (ctx, { query }) => {
-    try {
-      const userId = await handleUserId(ctx);
-      if (userId) {
-        // 1. Generate an embedding from you favorite third party API:
-        const embedding = await getEmbeddingsWithAI(query);
+    const userId = await handleUserId(ctx);
+    const needle = query.trim().toLowerCase();
+    if (!userId || !needle) return [];
 
-        // 2. Then search for similar foods!
-        const results = await ctx.vectorSearch("todos", "by_embedding", {
-          vector: embedding,
-          limit: 16,
-          filter: (q) => q.eq("userId", userId),
-        });
-        const rows: any = await ctx.runQuery(
-          internal.search.fetchSearchResults,
-          {
-            results,
-          }
-        );
-        return rows;
-      }
-    } catch (err) {
-      console.error("Error searching", err);
-    }
+    const todos = await ctx.db
+      .query("todos")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .take(LIST_LIMIT);
+
+    return todos.filter(
+      (todo) =>
+        todo.taskName.toLowerCase().includes(needle) ||
+        (todo.description ?? "").toLowerCase().includes(needle),
+    );
   },
 });

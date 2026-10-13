@@ -1,55 +1,13 @@
 "use client";
-import { ReactNode, useMemo } from "react";
-import { ConvexProviderWithAuth, ConvexReactClient } from "convex/react";
-import { Session } from "next-auth";
-import { SessionProvider, useSession } from "next-auth/react";
+import { ReactNode } from "react";
+import { ConvexProvider, ConvexReactClient } from "convex/react";
 
-const convex = new ConvexReactClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+// `convex dev` writes the real URL to .env.local. Until it has, a fresh checkout
+// points at the local deployment's default address instead of crashing.
+const convex = new ConvexReactClient(
+  process.env.NEXT_PUBLIC_CONVEX_URL ?? "http://127.0.0.1:3210",
+);
 
-function convexTokenFromSession(session: Session | null): string | null {
-  return session?.convexToken ?? null;
-}
-
-function useAuth() {
-  const { data: session, update } = useSession();
-
-  const convexToken = convexTokenFromSession(session);
-  return useMemo(
-    () => ({
-      isLoading: false,
-      isAuthenticated: session !== null,
-      fetchAccessToken: async ({
-        forceRefreshToken,
-      }: {
-        forceRefreshToken: boolean;
-      }) => {
-        if (forceRefreshToken) {
-          const session = await update();
-
-          return convexTokenFromSession(session);
-        }
-        return convexToken;
-      },
-    }),
-    // We only care about the user changes, and don't want to
-    // bust the memo when we fetch a new token.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [JSON.stringify(session?.user)]
-  );
-}
-
-export default function Providers({
-  children,
-  session,
-}: {
-  children: ReactNode;
-  session: Session | null;
-}) {
-  return (
-    <SessionProvider session={session}>
-      <ConvexProviderWithAuth client={convex} useAuth={useAuth}>
-        {children}
-      </ConvexProviderWithAuth>
-    </SessionProvider>
-  );
+export default function Providers({ children }: { children: ReactNode }) {
+  return <ConvexProvider client={convex}>{children}</ConvexProvider>;
 }
