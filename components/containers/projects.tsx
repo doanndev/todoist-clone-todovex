@@ -1,34 +1,42 @@
 "use client";
 import { api } from "@/convex/_generated/api";
 import { useQuery } from "convex/react";
-import { Hash } from "lucide-react";
-import Link from "next/link";
-import { Label } from "../ui/label";
+import { useMemo } from "react";
+import PageHeader from "../nav/page-header";
+import SwatchStrip from "../nav/swatch-strip";
+import { useSwatches } from "@/lib/use-swatches";
+import { projectName } from "@/lib/swatch";
+import { projectStats } from "@/lib/agenda";
 
 export default function ProjectList() {
   const projects = useQuery(api.projects.getProjects);
+  const swatchOf = useSwatches();
+  const todos = useQuery(api.todos.get);
+
+  const stats = useMemo(() => projectStats(todos ?? []), [todos]);
+
   return (
-    <div className="xl:px-40">
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold md:text-2xl">Projects</h1>
-      </div>
-      <div className="flex flex-col gap-1 py-4">
+    <>
+      <PageHeader
+        title="Projects"
+        meta={projects ? `${projects.length} in the deck` : undefined}
+      />
+      <div className="flex flex-col gap-2">
         {projects?.map((project) => {
+          const stat = stats.get(project._id) ?? { open: 0, total: 0 };
           return (
-            <Link key={project._id} href={`/loggedin/projects/${project._id}`}>
-              <div className="flex items-center space-x-2 border-b-2 p-2 border-gray-100">
-                <Hash className="text-primary w-5" />
-                <Label
-                  htmlFor="projects"
-                  className="text-base font-normal hover:cursor-pointer"
-                >
-                  {project.name}
-                </Label>
-              </div>
-            </Link>
+            <SwatchStrip
+              key={project._id}
+              name={projectName(project)}
+              swatch={swatchOf(project._id)}
+              open={stat.open}
+              done={stat.total ? (stat.total - stat.open) / stat.total : 0}
+              href={`/loggedin/projects/${project._id}`}
+              className="h-16 rounded-[3px] text-base"
+            />
           );
         })}
       </div>
-    </div>
+    </>
   );
 }

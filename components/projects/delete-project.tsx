@@ -1,63 +1,61 @@
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuLabel,
+  DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { api } from "@/convex/_generated/api";
-import { useAction, useMutation } from "convex/react";
+import { useAction, useQuery } from "convex/react";
 import { EllipsisIcon, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
 import { useToast } from "../ui/use-toast";
 import { Id } from "@/convex/_generated/dataModel";
-import { GET_STARTED_PROJECT_ID } from "@/utils";
 
 export default function DeleteProject({
   projectId,
 }: {
   projectId: Id<"projects">;
 }) {
-  const form = useForm({ defaultValues: { name: "" } });
   const { toast } = useToast();
   const router = useRouter();
 
   const deleteProject = useAction(api.projects.deleteProjectAndItsTasks);
+  const project = useQuery(api.projects.getProjectByProjectId, { projectId });
 
-  const onSubmit = async () => {
-    if (projectId === GET_STARTED_PROJECT_ID) {
+  const onDelete = async () => {
+    if (project?.type === "system") {
       toast({
-        title: "🤗 Just a reminder",
-        description: "System projects are protected from deletion.",
+        title: "Unfiled cannot be deleted",
+        description: "System projects are protected.",
         duration: 3000,
       });
-    } else {
-      const deleteTaskId = await deleteProject({ projectId });
+      return;
+    }
 
-      if (deleteTaskId !== undefined) {
-        toast({
-          title: "🗑️ Successfully created a project",
-          duration: 3000,
-        });
-        router.push(`/loggedin/projects`);
-      }
+    const deleted = await deleteProject({ projectId });
+
+    if (deleted) {
+      toast({ title: "Project deleted", duration: 3000 });
+      router.push(`/loggedin/projects`);
     }
   };
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger>
-        <EllipsisIcon className="w-5 h-5 text-foreground hover:cursor-pointer" />
+      <DropdownMenuTrigger
+        aria-label="Project actions"
+        className="inline-flex h-10 w-10 items-center justify-center rounded-md hover:bg-accent active:scale-95"
+      >
+        <EllipsisIcon className="h-5 w-5" strokeWidth={1.75} />
       </DropdownMenuTrigger>
-      <DropdownMenuContent>
-        <DropdownMenuLabel className="w-40 lg:w-56">
-          <form onSubmit={form.handleSubmit(onSubmit)}>
-            <button type="submit" className="flex gap-2">
-              <Trash2 className="w-5 h-5 rotate-45 text-foreground/40" /> Delete
-              Project
-            </button>
-          </form>
-        </DropdownMenuLabel>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem
+          onSelect={onDelete}
+          className="gap-2 text-destructive focus:text-destructive"
+        >
+          <Trash2 className="h-4 w-4" strokeWidth={1.75} />
+          Delete project
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -1,40 +1,22 @@
-import { Id } from "./_generated/dataModel";
-import { query, mutation, action } from "./_generated/server";
+import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { handleUserId } from "./auth";
-import moment from "moment";
-import { getEmbeddingsWithAI } from "./openai";
-import { api } from "./_generated/api";
+import { LIST_LIMIT } from "./limits";
+import { recurrenceValidator, sameRecurrence } from "./recurrence";
+import { handleUserId, ownedTask } from "./auth";
+
+// Keep this many ticked repeats per task, newest first, so a daily habit can
+// never grow its document without bound.
+const MAX_TICKS = 1000;
 
 export const get = query({
   args: {},
   handler: async (ctx) => {
     const userId = await handleUserId(ctx);
-    if (userId) {
-      return await ctx.db
-        .query("todos")
-        .filter((q) => q.eq(q.field("userId"), userId))
-        .collect();
-    }
-    return [];
-  },
-});
-
-export const getCompletedTodosByProjectId = query({
-  args: {
-    projectId: v.id("projects"),
-  },
-  handler: async (ctx, { projectId }) => {
-    const userId = await handleUserId(ctx);
-    if (userId) {
-      return await ctx.db
-        .query("todos")
-        .filter((q) => q.eq(q.field("userId"), userId))
-        .filter((q) => q.eq(q.field("projectId"), projectId))
-        .filter((q) => q.eq(q.field("isCompleted"), true))
-        .collect();
-    }
-    return [];
+    if (!userId) return [];
+    return await ctx.db
+      .query("todos")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .take(LIST_LIMIT);
   },
 });
 
@@ -44,156 +26,31 @@ export const getTodosByProjectId = query({
   },
   handler: async (ctx, { projectId }) => {
     const userId = await handleUserId(ctx);
-    if (userId) {
-      return await ctx.db
-        .query("todos")
-        .filter((q) => q.eq(q.field("userId"), userId))
-        .filter((q) => q.eq(q.field("projectId"), projectId))
-        .collect();
-    }
-    return [];
-  },
-});
-
-export const getInCompleteTodosByProjectId = query({
-  args: {
-    projectId: v.id("projects"),
-  },
-  handler: async (ctx, { projectId }) => {
-    const userId = await handleUserId(ctx);
-    if (userId) {
-      return await ctx.db
-        .query("todos")
-        .filter((q) => q.eq(q.field("userId"), userId))
-        .filter((q) => q.eq(q.field("projectId"), projectId))
-        .filter((q) => q.eq(q.field("isCompleted"), false))
-        .collect();
-    }
-    return [];
-  },
-});
-
-export const getTodosTotalByProjectId = query({
-  args: {
-    projectId: v.id("projects"),
-  },
-  handler: async (ctx, { projectId }) => {
-    const userId = await handleUserId(ctx);
-    if (userId) {
-      const todos = await ctx.db
-        .query("todos")
-        .filter((q) => q.eq(q.field("userId"), userId))
-        .filter((q) => q.eq(q.field("projectId"), projectId))
-        .filter((q) => q.eq(q.field("isCompleted"), true))
-        .collect();
-
-      return todos?.length || 0;
-    }
-    return 0;
-  },
-});
-
-export const todayTodos = query({
-  args: {},
-  handler: async (ctx) => {
-    const userId = await handleUserId(ctx);
-
-    if (userId) {
-      const todayStart = moment().startOf("day");
-      const todayEnd = moment().endOf("day");
-
-      return await ctx.db
-        .query("todos")
-        .filter((q) => q.eq(q.field("userId"), userId))
-        .filter(
-          (q) =>
-            q.gte(q.field("dueDate"), todayStart.valueOf()) &&
-            q.lte(todayEnd.valueOf(), q.field("dueDate"))
-        )
-        .collect();
-    }
-    return [];
-  },
-});
-
-export const overdueTodos = query({
-  args: {},
-  handler: async (ctx) => {
-    const userId = await handleUserId(ctx);
-
-    if (userId) {
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
-
-      return await ctx.db
-        .query("todos")
-        .filter((q) => q.eq(q.field("userId"), userId))
-        .filter((q) => q.lt(q.field("dueDate"), todayStart.getTime()))
-        .collect();
-    }
-    return [];
-  },
-});
-
-export const completedTodos = query({
-  args: {},
-  handler: async (ctx) => {
-    const userId = await handleUserId(ctx);
-    if (userId) {
-      return await ctx.db
-        .query("todos")
-        .filter((q) => q.eq(q.field("userId"), userId))
-        .filter((q) => q.eq(q.field("isCompleted"), true))
-        .collect();
-    }
-    return [];
-  },
-});
-
-export const inCompleteTodos = query({
-  args: {},
-  handler: async (ctx) => {
-    const userId = await handleUserId(ctx);
-    if (userId) {
-      return await ctx.db
-        .query("todos")
-        .filter((q) => q.eq(q.field("userId"), userId))
-        .filter((q) => q.eq(q.field("isCompleted"), false))
-        .collect();
-    }
-    return [];
-  },
-});
-
-export const totalTodos = query({
-  args: {},
-  handler: async (ctx) => {
-    const userId = await handleUserId(ctx);
-    if (userId) {
-      const todos = await ctx.db
-        .query("todos")
-        .filter((q) => q.eq(q.field("userId"), userId))
-        .filter((q) => q.eq(q.field("isCompleted"), true))
-        .collect();
-      return todos.length || 0;
-    }
-    return 0;
+    if (!userId) return [];
+    return await ctx.db
+      .query("todos")
+      .withIndex("by_user_and_project", (q) =>
+        q.eq("userId", userId).eq("projectId", projectId),
+      )
+      .take(LIST_LIMIT);
   },
 });
 
 export const checkATodo = mutation({
   args: { taskId: v.id("todos") },
   handler: async (ctx, { taskId }) => {
-    const newTaskId = await ctx.db.patch(taskId, { isCompleted: true });
-    return newTaskId;
+    if (!(await ownedTask(ctx, taskId))) return null;
+    await ctx.db.patch(taskId, { isCompleted: true });
+    return taskId;
   },
 });
 
 export const unCheckATodo = mutation({
   args: { taskId: v.id("todos") },
   handler: async (ctx, { taskId }) => {
-    const newTaskId = await ctx.db.patch(taskId, { isCompleted: false });
-    return newTaskId;
+    if (!(await ownedTask(ctx, taskId))) return null;
+    await ctx.db.patch(taskId, { isCompleted: false });
+    return taskId;
   },
 });
 
@@ -203,87 +60,20 @@ export const createATodo = mutation({
     description: v.optional(v.string()),
     priority: v.number(),
     dueDate: v.number(),
-    projectId: v.id("projects"),
-    labelId: v.id("labels"),
-    embedding: v.optional(v.array(v.float64())),
-  },
-  handler: async (
-    ctx,
-    { taskName, description, priority, dueDate, projectId, labelId, embedding }
-  ) => {
-    try {
-      const userId = await handleUserId(ctx);
-      if (userId) {
-        const newTaskId = await ctx.db.insert("todos", {
-          userId,
-          taskName,
-          description,
-          priority,
-          dueDate,
-          projectId,
-          labelId,
-          isCompleted: false,
-          embedding,
-        });
-        return newTaskId;
-      }
-
-      return null;
-    } catch (err) {
-      console.log("Error occurred during createATodo mutation", err);
-
-      return null;
-    }
-  },
-});
-
-export const createTodoAndEmbeddings = action({
-  args: {
-    taskName: v.string(),
-    description: v.optional(v.string()),
-    priority: v.number(),
-    dueDate: v.number(),
+    endDate: v.optional(v.number()),
+    allDay: v.optional(v.boolean()),
+    recurrence: v.optional(recurrenceValidator),
     projectId: v.id("projects"),
     labelId: v.id("labels"),
   },
-  handler: async (
-    ctx,
-    { taskName, description, priority, dueDate, projectId, labelId }
-  ) => {
-    const embedding = await getEmbeddingsWithAI(taskName);
-    await ctx.runMutation(api.todos.createATodo, {
-      taskName,
-      description,
-      priority,
-      dueDate,
-      projectId,
-      labelId,
-      embedding,
-    });
-  },
-});
-
-export const groupTodosByDate = query({
-  args: {},
-  handler: async (ctx) => {
+  handler: async (ctx, fields) => {
     const userId = await handleUserId(ctx);
-
-    if (userId) {
-      const todos = await ctx.db
-        .query("todos")
-        .filter((q) => q.eq(q.field("userId"), userId))
-        .filter((q) => q.gt(q.field("dueDate"), new Date().getTime()))
-        .collect();
-
-      const groupedTodos = todos.reduce<any>((acc, todo) => {
-        const dueDate = new Date(todo.dueDate).toDateString();
-        acc[dueDate] = (acc[dueDate] || []).concat(todo);
-        return acc;
-      }, {});
-
-      return groupedTodos;
-    }
-    return [];
+    if (!userId) return null;
+    return await ctx.db.insert("todos", {
+      userId,
+      ...fields,
+      isCompleted: false,
+    });
   },
 });
 
@@ -292,20 +82,54 @@ export const deleteATodo = mutation({
     taskId: v.id("todos"),
   },
   handler: async (ctx, { taskId }) => {
-    try {
-      const userId = await handleUserId(ctx);
-      if (userId) {
-        const deletedTaskId = await ctx.db.delete(taskId);
-        //query todos and map through them and delete
+    if (!(await ownedTask(ctx, taskId))) return null;
+    await ctx.db.delete(taskId);
+    return taskId;
+  },
+});
 
-        return deletedTaskId;
-      }
+export const updateATodo = mutation({
+  args: {
+    taskId: v.id("todos"),
+    taskName: v.string(),
+    description: v.optional(v.string()),
+    priority: v.number(),
+    dueDate: v.number(),
+    endDate: v.optional(v.number()),
+    allDay: v.optional(v.boolean()),
+    recurrence: v.optional(recurrenceValidator),
+    projectId: v.id("projects"),
+    labelId: v.id("labels"),
+  },
+  handler: async (ctx, { taskId, ...fields }) => {
+    const task = await ownedTask(ctx, taskId);
+    if (!task) return null;
+    // Ticks belong to the old dates, so moving or re-ruling the task clears them.
+    const scheduleChanged =
+      fields.dueDate !== task.dueDate ||
+      fields.endDate !== task.endDate ||
+      (fields.allDay ?? true) !== (task.allDay ?? true) ||
+      !sameRecurrence(fields.recurrence, task.recurrence);
+    // Fields left undefined are removed, so "does not repeat" clears the rule.
+    await ctx.db.patch(taskId, {
+      ...fields,
+      ...(scheduleChanged ? { completedOccurrences: undefined } : {}),
+    });
+    return taskId;
+  },
+});
 
-      return null;
-    } catch (err) {
-      console.log("Error occurred during deleteATodo mutation", err);
-
-      return null;
-    }
+// Ticks one repeat of a recurring task. `key` is the start of that repeat's day.
+export const setOccurrenceDone = mutation({
+  args: { taskId: v.id("todos"), key: v.number(), done: v.boolean() },
+  handler: async (ctx, { taskId, key, done }) => {
+    const task = await ownedTask(ctx, taskId);
+    if (!task) return null;
+    const others = (task.completedOccurrences ?? []).filter((k) => k !== key);
+    const ticks = done ? [...others, key] : others;
+    await ctx.db.patch(taskId, {
+      completedOccurrences: ticks.sort((a, b) => a - b).slice(-MAX_TICKS),
+    });
+    return taskId;
   },
 });

@@ -1,18 +1,20 @@
-import { CircleCheckBig } from "lucide-react";
-import React from "react";
+import { ReactNode } from "react";
 
 export default function CompletedTodos({
   totalTodos = 0,
+  children,
 }: {
   totalTodos: number;
+  children?: ReactNode;
 }) {
+  if (totalTodos === 0) return null;
+
   return (
-    <div className="flex items-center gap-1 border-b-2 p-2 border-gray-100  text-sm text-foreground/80">
-      <>
-        <CircleCheckBig />
-        <span>+ {totalTodos}</span>
-        <span className="capitalize">completed tasks</span>
-      </>
-    </div>
+    <section aria-label="Completed tasks" className="mt-10">
+      <h2 className="mb-1 text-sm font-semibold text-muted-foreground">
+        Completed <span className="tabular-nums">({totalTodos})</span>
+      </h2>
+      {children}
+    </section>
   );
 }
